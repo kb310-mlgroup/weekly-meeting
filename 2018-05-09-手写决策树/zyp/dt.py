@@ -85,6 +85,7 @@ def find_best_feature(X_, y_, sample_mask, feature_mask, feature_types):
         else:
             gini_val, sep_val = discrete_f(X[:, i], y)
         if min_gini > gini_val:
+            min_gini = gini_val  # 2018年05月10日添加
             best_index = i
             best_sep_val = sep_val
     return best_index, best_sep_val
@@ -120,7 +121,8 @@ def build_tree(X, y,
     ind = np.argmax(y_c)
     most_common_y = y[ind]
     result["most_common_type"] = most_common_y
-    if depth == max_depth:
+    # 如果设置了max_depth
+    if max_depth and depth == max_depth:
         result["is_leaf"] = True
         result["class"] = most_common_y
         return result
@@ -284,13 +286,20 @@ class DecisionTreeClassifer(object):
     决策树分类器
     """
 
-    def __init__(self, max_depth=100):
-        self.max_depth = 100
+    def __init__(self, max_depth=None):
+        self.max_depth = max_depth
         self.tree_ = None
 
     def fit(self, X, y, is_pruning=False):
+        """
+        决策树的构建
+        :param X:
+        :param y:
+        :param is_pruning:
+        :return:
+        """
         if is_pruning:
-            X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.5, shuffle=True)
+            X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.3, shuffle=True)
         else:
             X_train, y_train = X, y
         feature_types = get_feature_types(X_train)
