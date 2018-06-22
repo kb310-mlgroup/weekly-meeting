@@ -1,0 +1,287 @@
+
+# coding: utf-8
+
+# In[1]:
+
+
+import numpy as np
+import pandas as pd
+from sklearn import datasets
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+import pickle
+from sklearn import tree
+from sklearn.metrics import mean_squared_error
+import sys   
+
+
+# In[2]:
+
+
+sys.setrecursionlimit(1000000)
+
+
+# In[3]:
+
+
+train_data_boston = datasets.load_boston().data
+target_data_boston = datasets.load_boston().target
+result = []
+
+
+# In[4]:
+
+
+def Slide_data(columns, values,train):
+    index_bigger = train[train[columns] > values].index
+    index_smaller = train[train[columns] <= values].index
+    #train_bigger = train.loc[index_bigger]
+    #train_smaller = train.loc[index_smaller]
+    return index_bigger, index_smaller
+
+
+# In[5]:
+
+
+def transform(slide_values):
+    sl = np.asarray(slide_values)
+    temp = pd.DataFrame(data = sl, columns = ['columns'+'_'+str(i) for i in range(sl.shape[1])])
+    temp = temp.sort_values(by=temp.columns[2])
+    temp_array = np.array(temp)
+    index = temp_array[:,1].astype(np.int)
+    values = temp_array[:,2].astype(np.float)
+    columns = temp_array[:,0].astype(np.str)
+    c1_slide = temp_array[:,3].astype(np.float)
+    c0_slide = temp_array[:,4].astype(np.float)
+    return index, values, columns, c1_slide, c0_slide
+
+
+# In[6]:
+
+
+def Select_pairs(train, target):
+    Slides = []
+    mean_all = target.mean()[0]
+    t = 0
+    for x in train.columns:
+        j = 0
+        for i in train.index:
+            s = train[x].loc[i]
+            index_bigger, index_smaller = Slide_data(x, s, train)
+            if len(index_smaller)==0 or len(index_bigger)==0:
+                if len(index_smaller)==0:
+                    c_1 = mean_all
+                    c_0 = 0
+                    sum_c1 = (target-c_1).apply(lambda x:x**2).sum()[0]
+                    sum_c0 = 0
+                    sum_columns = sum_c1
+                else:
+                    c_0 = mean_all
+                    c_1 = 0
+                    sum_c0 = (target-c_0).apply(lambda x:x**2).sum()[0]
+                    sum_c1 = 0
+                    sum_columns = sum_c0
+            elif len(index_smaller) != 0 and len(index_smaller) != 0:
+                c_1 = target.loc[index_bigger].mean()[0]
+                c_0 = target.loc[index_smaller].mean()[0]
+                sum_c0 = (target.loc[index_smaller]-c_0).apply(lambda x:x**2).sum()[0]
+                sum_c1 = (target.loc[index_bigger]-c_1).apply(lambda x:x**2).sum()[0]
+                sum_columns = sum_c0 + sum_c1
+            if j == 0:
+                min_sum = sum_columns
+                min_index = i
+                c1_slide = c_1
+                c0_slide = c_0
+            elif j!=0 and sum_columns <= min_sum:
+                min_sum = sum_columns
+                min_index = i
+                c1_slide = c_1
+                c0_slide = c_0
+            j = j+1
+        if t == 0:
+            temp = [x, min_index, min_sum, c1_slide, c0_slide]
+            Slides.append(temp)
+        else:
+            if min_sum <= Slides[0][2]:
+                temp = [x, min_index, min_sum, c1_slide, c0_slide]
+                Slides = [temp]
+        t = t + 1
+        #Slides.append([x, min_index, min_sum, c1_slide, c0_slide])
+    #temp = Slides
+    #index,values,columns,c1_slide,c0_slide = transform(temp)
+    return Slides[0]
+
+
+# In[7]:
+
+
+def Creat_Tree(train, target, TSH):
+    if len(train)<=TSH:
+        mean = target.mean()[0]
+        return mean
+    slide = Select_pairs(train, target)
+    myTree = {str(slide[0])+'_'+str(train[slide[0]].loc[slide[1]]):{}}
+    index_bigger, index_smaller = Slide_data(slide[0], train[slide[0]].loc[slide[1]], train)
+    z = []
+    z.append(((train.loc[index_bigger],target.loc[index_bigger]),(train.loc[index_smaller],target.loc[index_smaller])))
+    for i in ([0,1]):
+        myTree[str(slide[0])+'_'+str(train[slide[0]].loc[slide[1]])][i] = Creat_Tree(z[0][i][0],z[0][i][1],TSH)
+    #index, values, column = Select_pairs(train.loc[index_bigger], target.loc[index_bigger])
+    #index, values, column = Select_pairs(train.loc[index_smaller], target.loc[index_smaller])
+    return myTree
+
+
+# In[8]:
+
+
+def to_pre(result):
+    prediction = pd.DataFrame()
+    for i in range(len(result)):
+        if len(result[i]) != 0:
+            prediction = pd.concat([prediction,result[i]])
+    return prediction.sort_index()
+
+
+# In[9]:
+
+
+def save_model(T,filename):
+    fw = open(filename,'w')
+    pickle.dump(T,fw)
+    fw.close
+
+def load_model(filename):
+    fr = open(filename)
+    return pickle.load(fr)
+
+
+# In[10]:
+
+
+def Train(train,target,model_name,TSH):
+    tree = Creat_Tree(train, target,TSH)
+    save_model(tree,model_name)
+    return tree
+
+
+# In[11]:
+
+
+def Predict(x_test,tree):
+    temp = Pre(tree, x_test)
+    prediction = to_pre(temp)
+    return prediction
+
+
+# In[12]:
+
+
+def Pre(tree,train):
+    if type(tree).__name__ == 'float64':
+        x = pd.DataFrame(index = train.index,columns = ['target'], data = tree )
+        result.append(x)
+    else:
+        keys = tree.keys()[0]
+        col = keys.split('_')[0]
+        values = float(keys.split('_')[1])
+        index_bigger = train[train[col] > values].index
+        index_smaller = train[train[col] <= values].index
+        Pre(tree[keys][0], train.loc[index_bigger])
+        Pre(tree[keys][1], train.loc[index_smaller])
+    return result
+
+
+# In[13]:
+
+
+def compare(x_train, x_test, y_train, y_test):
+    reg = tree.DecisionTreeRegressor()
+    reg.fit(x_train, y_train)
+    pre_sklearn = reg.predict(x_test)
+    mse = mean_squared_error(pre_sklearn, y_test)
+    return mse
+
+
+# In[14]:
+
+
+def Data_To_Pd(train, target):
+    train_data = pd.DataFrame(data = train,columns = ["columns"+str(x) for x in range(train.shape[1])])
+    target_data = pd.DataFrame(data = target, columns=["target"])
+    x_train,x_test,y_train,y_test = train_test_split(train_data,target_data,test_size = 0.3, random_state=23)
+    return x_train, x_test, y_train, y_test
+
+
+# In[15]:
+
+
+def All_Process(train,target,metrics,model_name, TSH):
+    x_train,x_test,y_train,y_test = Data_To_Pd(train,target)
+    tree = Train(x_train, y_train,model_name, TSH)
+    mse_sklearn = compare(x_train, x_test, y_train, y_test)
+    prediction = Predict(x_test, tree)
+    if metrics == 'MSE':
+        mse = mean_squared_error(prediction, y_test.sort_index())
+    print ("Sklearn's mse is %f,Mine is %f"%(mse_sklearn, mse))
+    return prediction, mse
+
+
+# In[ ]:
+
+
+prediction,error = All_Process(train_data_boston, target_data_boston, metrics='MSE',TSH = 5, model_name='DTR_model_5.txt')
+
+
+# In[ ]:
+
+
+def Review(train, target, model_name):
+    x_train,x_test,y_train,y_test = Data_To_Pd(train, target)
+    model = load_model(model_name)
+    
+
+
+# In[ ]:
+
+
+#tree = load_model('DTR_model_1.txt')
+
+
+# In[ ]:
+
+
+#x_train,x_test,y_train,y_test = Data_To_Pd(train_data_boston, target_data_boston)
+
+
+# # Another-dataset
+
+# In[16]:
+
+
+train_data_diabet = datasets.load_diabetes().data
+target_data_diabet = datasets.load_diabetes().target
+
+
+# In[17]:
+
+
+data_train,data_val,target_train,target_val = Data_To_Pd(train_data_diabet, target_data_diabet)
+
+
+# In[18]:
+
+
+a,b = All_Process(train_data_diabet, target_data_diabet, metrics='MSE',TSH = 5, model_name='DTR_model_diabet_1.txt')
+
+
+# In[ ]:
+
+
+tree_dia = load_model('DTR_model_150.txt')
+
+
+# In[ ]:
+
+
+Pre(tree_dia, data_val)
+
